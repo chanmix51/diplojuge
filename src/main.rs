@@ -47,16 +47,27 @@ impl<'a> Location<'a> {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 struct Relation<'a> {
-    location_a: &'a Location<'a>,
-    location_b: &'a Location<'a>,
+    location_a: &'a str,
+    location_b: &'a str,
     pawn_type: PawnType,
 }
 
 impl<'a> Relation<'a> {
-    pub fn create(location_a: &'a Location<'a>, location_b: &'a Location<'a>, pawn_type: PawnType) -> Relation<'a> {
+    pub fn create(location_a: &'a str, location_b: &'a str, pawn_type: PawnType) -> Relation<'a> {
         Relation { location_a, location_b, pawn_type }
+    }
+}
+
+impl<'a> PartialEq for Relation<'a> {
+    fn eq(&self, other: &Relation) -> bool {
+        self.pawn_type == other.pawn_type && (
+            self.location_a == other.location_a
+            && self.location_b == other.location_b 
+            || self.location_a == other.location_b
+            && self.location_b == other.location_a
+            )
     }
 }
 
@@ -75,41 +86,44 @@ impl<'a> Board<'a> {
         self.locations.insert(location.name, location);
     }
 
-    fn add_relation(&mut self, pawn_type: PawnType, source: &str, target: &str) -> Result<(), String> {
-        let location_a = match self.locations.get(source) {
-            Some(a) => a,
-            None => return Err(format!("No such location {}.", source)),
-        };
-        let location_b = match self.locations.get(target) {
-            Some(b) => b,
-            None => return Err(format!("No such location {}.", target)),
-        };
-        let relation = Relation::create(location_a.clone(), location_b.clone(), pawn_type);
+    fn location_exists(&self, location: &str) -> bool {
+        match self.locations.get(location) {
+            Some(_) => true,
+            None => false,
+        }
+    }
+
+    fn check_location(&self, location: &str) -> Result<(), String> {
+        if self.location_exists(location) {
+            Ok(())
+        } else {
+            Err(format!("Location {} does not exist.", location))
+        }
+    }
+
+    fn relation_exists(&self, relation: &Relation) -> bool {
         for existing_relation in self.relations.iter() {
-            if relation == *existing_relation {
-                return Err(format!("The relation {} ←→ {} for type {:?} already exist.", source, target, pawn_type));
+            if *relation == *existing_relation {
+                return true;
             }
         }
 
-        self.relations.push(relation);
-        Ok(())
+        false
     }
 
-    pub fn add_relations(&mut self, location_name: &str, pawn_type: PawnType, location_dest: &str) -> Result<(), String> {
-        let source = match self.get_location(location_name) {
-            Some(a) => a,
-            None => return Err(format!("No such source location {}.", location_name)),
-        };
-
-        let dest = match self.get_location(location_dest) {
-            Some(a) => a,
-            None => return Err(format!("No such target location {}.", location_name)),
-        };
-
-        if source == dest {
-            return Err(format!("Source and destination are the same location {}.", location_name));
+    fn add_relation(&mut self, pawn_type: PawnType, source: &'a str, target: &'a str) -> Result<(), String> {
+        self.check_location(source)?;
+        self.check_location(target)?;
+        if source == target {
+            return Err(format!("Trying to define a self relation {} ←→ {}", source, target));
         }
 
+        let relation = Relation::create(source, target, pawn_type);
+        if self.relation_exists(&relation) {
+                return Err(format!("The relation {} ←→ {} already exist.", source, target));
+        }
+
+        self.relations.push(relation);
         Ok(())
     }
 
@@ -118,7 +132,8 @@ impl<'a> Board<'a> {
     }
 
     pub fn unit_can_move(&self, pawn_type: PawnType, src_location_name: &str, dst_location_name: &str) -> bool {
-        true
+        let my_relation = Relation::create(src_location_name, dst_location_name, pawn_type);
+        self.relation_exists(&my_relation)
     }
 }
 
@@ -142,22 +157,21 @@ mod tests {
     }
 
     #[test]
-    pub fn test_add_relations() {
+    pub fn test_add_relation() {
         let mut board = Board::create();
         board.add_location(Location::create("par", true, LocationType::Land));
         board.add_location(Location::create("pic", false, LocationType::Coastal));
         board.add_location(Location::create("bre", true, LocationType::Coastal));
         board.add_location(Location::create("man", false, LocationType::Sea));
-        board.add_relations("par", PawnType::Army, "pic");
-        board.add_relations("par", PawnType::Army, "bre");
-        board.add_relations("bre", PawnType::Fleet, "man");
-        board.add_relations("man", PawnType::Fleet, "pic");
+        board.add_relation(PawnType::Army, "par", "pic");
+        board.add_relation(PawnType::Army, "par", "bre");
+        board.add_relation(PawnType::Fleet, "bre", "man");
+        board.add_relation(PawnType::Fleet, "man", "pic");
 
         assert!(board.unit_can_move(PawnType::Army, "pic", "par"));
         assert!(!board.unit_can_move(PawnType::Fleet, "pic", "par"));
         assert!(board.unit_can_move(PawnType::Fleet, "bre", "man"));
         assert!(!board.unit_can_move(PawnType::Army, "bre", "man"));
-
-
+        assert!(!board.unit_can_move(PawnType::Army, "abc", "man"));
     }
 }
