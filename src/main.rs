@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 enum PawnType {
     Army,
     Fleet,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 enum Player {
     GB,
     FR,
@@ -35,6 +35,7 @@ struct Location<'a> {
     name: &'a str,
     is_center: bool,
     location_type: LocationType,
+    owned_by: Option<Player>
 }
 
 impl<'a> Location<'a> {
@@ -42,8 +43,18 @@ impl<'a> Location<'a> {
         Location {
             name,
             is_center,
-            location_type
+            location_type,
+            owned_by: None,
         }
+    }
+
+    pub fn is_owned_by(&mut self, player: Player) -> Result<(), String> {
+        if !self.is_center {
+            return Err(format!("Cannot assign location {} to player {:?}, it is not a center.", self.name, player));
+        }
+        self.owned_by = Some(player);
+
+        Ok(())
     }
 }
 
@@ -131,9 +142,20 @@ impl<'a> Board<'a> {
         self.locations.get(location_name)
     }
 
+    pub fn get_location_mut(&mut self, location_name: &str) -> Option<&mut Location<'a>> {
+        self.locations.get_mut(location_name)
+    }
+
     pub fn unit_can_move(&self, pawn_type: PawnType, src_location_name: &str, dst_location_name: &str) -> bool {
         let my_relation = Relation::create(src_location_name, dst_location_name, pawn_type);
         self.relation_exists(&my_relation)
+    }
+
+    pub fn assign_center(&mut self, location_name: &str, player: Player) -> Result<(), String> {
+        match self.get_location_mut(location_name) {
+            Some(location) => location.is_owned_by(player),
+            None => Err(format!("No such location {}.", location_name))
+        }
     }
 }
 
@@ -173,5 +195,13 @@ mod tests {
         assert!(board.unit_can_move(PawnType::Fleet, "bre", "man"));
         assert!(!board.unit_can_move(PawnType::Army, "bre", "man"));
         assert!(!board.unit_can_move(PawnType::Army, "abc", "man"));
+    }
+
+    #[test]
+    pub fn test_assign_location_success() {
+        let mut board = Board::create();
+        board.add_location(Location::create("par", true, LocationType::Land));
+        board.assign_center("par", Player::FR);
+        assert!(true);
     }
 }
